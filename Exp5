@@ -1,0 +1,226 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+from sklearn.datasets import fetch_20newsgroups
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, classification_report
+from sklearn.naive_bayes import MultinomialNB
+
+categories = [
+    "sci.space",
+    "rec.sport.baseball",
+    "comp.graphics",
+    "talk.politics.misc"
+]
+
+data = fetch_20newsgroups(
+    subset="all",
+    categories=categories,
+    remove=("headers", "footers", "quotes"),
+    shuffle=True,
+    random_state=42
+)
+
+X_text = data.data
+y = data.target
+class_names = data.target_names
+
+print("Number of documents:", len(X_text))
+print("Number of categories:", len(class_names))
+print("Categories:", class_names)
+
+X_train_text, X_test_text, y_train, y_test = train_test_split(
+    X_text,
+    y,
+    test_size=0.2,
+    random_state=42,
+    stratify=y
+)
+
+vectorizer = CountVectorizer(
+    stop_words="english",
+    max_features=3000,
+    min_df=2
+)
+
+X_train = vectorizer.fit_transform(X_train_text)
+X_test = vectorizer.transform(X_test_text)
+
+feature_names = vectorizer.get_feature_names()
+
+print("\nTraining matrix shape:", X_train.shape)
+print("Testing matrix shape:", X_test.shape)
+print("Vocabulary size:", len(feature_names))
+
+class_count = len(class_names)
+vocab_size = len(feature_names)
+
+word_counts = np.zeros((class_count, vocab_size))
+
+for c in range(class_count):
+    word_counts[c] = np.asarray(
+        X_train[y_train == c].sum(axis=0)
+    ).ravel()
+
+total_words = word_counts.sum(axis=1, keepdims=True)
+
+mle_estimates = word_counts / np.maximum(total_words, 1)
+
+priors = {
+    "MAP Uniform (alpha=1.0)": 1.0,
+    "MAP Weak (alpha=0.1)": 0.1,
+    "MAP Strong (alpha=10.0)": 10.0
+}
+
+map_estimates = {}
+
+for name, alpha in priors.items():
+    map_estimates[name] = (
+        word_counts + alpha
+    ) / (
+        total_words + vocab_size * alpha
+    )
+
+mle_model = MultinomialNB(alpha=1e-10)
+mle_model.fit(X_train, y_train)
+
+results = []
+
+y_pred_mle = mle_model.predict(X_test)
+
+results.append({
+    "Method": "MLE Approximation",
+    "Accuracy": accuracy_score(y_test, y_pred_mle)
+})
+
+for name, alpha in priors.items():
+    model = MultinomialNB(alpha=alpha)
+    model.fit(X_train, y_train)
+
+    y_pred = model.predict(X_test)
+
+    results.append({
+        "Method": name,
+        "Accuracy": accuracy_score(y_test, y_pred)
+    })
+
+    print("\n", name)
+    print(classification_report(
+        y_test,
+        y_pred,
+        target_names=class_names
+    ))
+
+results_df = pd.DataFrame(results)
+
+print("\n========== MODEL PERFORMANCE COMPARISON ==========")
+print(results_df.round(4).to_string(index=False))
+
+print("\n========== MLE PARAMETER ESTIMATES ==========")
+
+for c, class_name in enumerate(class_names):
+    top_indices = np.argsort(mle_estimates[c])[-10:][::-1]
+
+    print("\nCategory:", class_name)
+
+    for idx in top_indices:
+        print(
+            feature_names[idx],
+            ":",
+            round(mle_estimates[c, idx], 6)
+        )
+
+print("\n========== MAP PARAMETER ESTIMATES ==========")
+
+for name, estimates in map_estimates.items():
+    print("\n", name)
+
+    for c, class_name in enumerate(class_names):
+        top_indices = np.argsort(estimates[c])[-5:][::-1]
+
+        print("\nCategory:", class_name)
+
+        for idx in top_indices:
+            print(
+                feature_names[idx],
+                ":",
+                round(estimates[c, idx], 6)
+            )
+
+plt.figure(figsize=(10, 6))
+
+plt.bar(
+    results_df["Method"],
+    results_df["Accuracy"],
+    color=["blue", "green", "orange", "red"]
+)
+
+plt.title("Accuracy Comparison: MLE vs MAP")
+plt.xlabel("Estimation Method")
+plt.ylabel("Accuracy")
+plt.xticks(rotation=20)
+plt.ylim(0, 1)
+plt.tight_layout()
+plt.show()
+
+selected_class = 0
+
+top_words = np.argsort(word_counts[selected_class])[-15:]
+
+plot_data = pd.DataFrame({
+    "Word": [feature_names[i] for i in top_words],
+    "MLE": mle_estimates[selected_class, top_words],
+    "MAP alpha=0.1": map_estimates[
+        "MAP Weak (alpha=0.1)"
+    ][selected_class, top_words],
+    "MAP alpha=1.0": map_estimates[
+        "MAP Uniform (alpha=1.0)"
+    ][selected_class, top_words],
+    "MAP alpha=10.0": map_estimates[
+        "MAP Strong (alpha=10.0)"
+    ][selected_class, top_words]
+})
+
+plot_data = plot_data.sort_values("MLE", ascending=False)
+
+plot_data.set_index("Word").plot(
+    kind="bar",
+    figsize=(13, 6)
+)
+
+plt.title(
+    "MLE vs MAP Word Probabilities: " + class_names[selected_class]
+)
+plt.xlabel("Word")
+plt.ylabel("Estimated Probability")
+plt.xticks(rotation=45)
+plt.tight_layout()---------------------------------------------------------------------------
+AttributeError                            Traceback (most recent call last)
+<ipython-input-1-155682090bdb> in <module>
+     50 X_test = vectorizer.transform(X_test_text)
+     51 
+---> 52 feature_names = vectorizer.get_feature_names_out()
+     53 
+     54 print("\nTraining matrix shape:", X_train.shape)
+
+AttributeError: 'CountVectorizer' object has no attribute 'get_feature_names_out'
+
+
+plt.show()
+
+print("\n========== FINAL SUMMARY ==========")
+
+for _, row in results_df.iterrows():
+    print(
+        "{}: Accuracy = {:.4f}".format(
+            row["Method"],
+            row["Accuracy"]
+        )
+    )
+
+print("\nMLE estimates probabilities from observed word counts.")
+print("MAP estimation incorporates prior information.")
+print("Dirichlet priors smooth estimated word probabilities.")
+print("Different prior strengths affect rare-word probabilities.")
