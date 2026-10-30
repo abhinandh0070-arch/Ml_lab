@@ -1,0 +1,215 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import PolynomialFeatures, StandardScaler
+from sklearn.linear_model import LinearRegression
+from sklearn.pipeline import Pipeline
+from sklearn.metrics import mean_squared_error, r2_score
+
+url = "https://archive.ics.uci.edu/ml/machine-learning-databases/auto-mpg/auto-mpg.data"
+
+columns = [
+    "mpg", "cylinders", "displacement", "horsepower",
+    "weight", "acceleration", "model_year", "origin", "car_name"
+]
+
+df = pd.read_csv(
+    url,
+    sep=r"\s+",
+    names=columns,
+    na_values="?",
+    skipinitialspace=True
+)
+
+print("Dataset loaded successfully!")
+print(df.head())
+print("Dataset shape:", df.shape)
+
+df["mpg"] = pd.to_numeric(df["mpg"], errors="coerce")
+df["displacement"] = pd.to_numeric(
+    df["displacement"], errors="coerce"
+)
+
+df = df.dropna(subset=["mpg", "displacement"])
+
+X = df[["displacement"]].values
+y = df["mpg"].values
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.20, random_state=42
+)
+
+linear_model = Pipeline([
+    ("scaler", StandardScaler()),
+    ("regressor", LinearRegression())
+])
+
+linear_model.fit(X_train, y_train)
+y_pred_linear = linear_model.predict(X_test)
+
+degrees = [2, 3, 4]
+polynomial_models = {}
+
+for degree in degrees:
+    model = Pipeline([
+        ("scaler", StandardScaler()),
+        ("polynomial", PolynomialFeatures(
+            degree=degree,
+            include_bias=False
+        )),
+        ("regressor", LinearRegression())
+    ])
+
+    model.fit(X_train, y_train)
+    polynomial_models[degree] = model
+
+results = []
+
+results.append({
+    "Model": "Linear Regression",
+    "Degree": 1,
+    "MSE": mean_squared_error(y_test, y_pred_linear),
+    "R-squared": r2_score(y_test, y_pred_linear)
+})
+
+for degree, model in polynomial_models.items():
+    y_pred = model.predict(X_test)
+
+    results.append({
+        "Model": "Polynomial Regression",
+        "Degree": degree,
+        "MSE": mean_squared_error(y_test, y_pred),
+        "R-squared": r2_score(y_test, y_pred)
+    })
+
+results_df = pd.DataFrame(results)
+
+print("\nModel Performance Comparison")
+print(results_df.to_string(
+    index=False,
+    formatters={
+        "MSE": "{:.4f}".format,
+        "R-squared": "{:.4f}".format
+    }
+))
+
+best_mse = results_df.loc[results_df["MSE"].idxmin()]
+best_r2 = results_df.loc[results_df["R-squared"].idxmax()]
+
+print("\nBest Model Based on MSE:")
+print(best_mse)
+
+print("\nBest Model Based on R-squared:")
+print(best_r2)
+
+X_plot = np.linspace(
+    X.min(), X.max(), 400
+).reshape(-1, 1)
+
+plt.figure(figsize=(11, 7))
+
+plt.scatter(
+    X_train, y_train,
+    color="gray", alpha=0.5,
+    s=25, label="Training Data"
+)
+
+plt.scatter(
+    X_test, y_test,
+    color="orange", alpha=0.6,
+    s=25, label="Testing Data"
+)
+
+plt.plot(
+    X_plot,
+    linear_model.predict(X_plot),
+    color="blue",
+    linewidth=2.5,
+    label="Linear Regression (Degree 1)"
+)
+
+colors = {2: "green", 3: "red", 4: "purple"}
+
+for degree, model in polynomial_models.items():
+    plt.plot(
+        X_plot,
+        model.predict(X_plot),
+        color=colors[degree],
+        linewidth=2,
+        label=f"Polynomial Regression (Degree {degree})"
+    )
+
+plt.title("Linear vs Polynomial Regression on Auto MPG Dataset")
+plt.xlabel("Engine Displacement")
+plt.ylabel("Miles Per Gallon (MPG)")
+plt.legend()
+plt.grid(True, alpha=0.3)
+plt.tight_layout()
+plt.show()
+
+model_labels = [
+    "Linear (Degree 1)",
+    "Polynomial (Degree 2)",
+    "Polynomial (Degree 3)",
+    "Polynomial (Degree 4)"
+]
+
+plt.figure(figsize=(9, 5))
+
+plt.bar(
+    model_labels,
+    results_df["MSE"],
+    color=["blue", "green", "red", "purple"]
+)
+
+plt.title("MSE Comparison")
+plt.xlabel("Regression Model")
+plt.ylabel("Mean Squared Error")
+plt.xticks(rotation=15)
+plt.grid(axis="y", alpha=0.3)
+plt.tight_layout()
+plt.show()
+
+plt.figure(figsize=(9, 5))
+
+plt.bar(
+    model_labels,
+    results_df["R-squared"],
+    color=["blue", "green", "red", "purple"]
+)
+
+plt.title("R-squared Comparison")
+plt.xlabel("Regression Model")
+plt.ylabel("R-squared")
+plt.xticks(rotation=15)
+plt.grid(axis="y", alpha=0.3)
+plt.tight_layout()
+plt.show()
+
+comparison_df = pd.DataFrame({
+    "Actual MPG": y_test,
+    "Linear Prediction": y_pred_linear
+})
+
+for degree, model in polynomial_models.items():
+    comparison_df[f"Polynomial Degree {degree}"] = (
+        model.predict(X_test)
+    )
+
+print("\nActual vs Predicted Values")
+print(comparison_df.head(10).round(2).to_string(index=False))
+
+print("\nFinal Summary")
+
+for _, row in results_df.iterrows():
+    print(
+        f"{row['Model']} | Degree: {row['Degree']} | "
+        f"MSE: {row['MSE']:.4f} | "
+        f"R-squared: {row['R-squared']:.4f}"
+    )
+
+print("\nLower MSE indicates smaller prediction errors.")
+print("Higher R-squared generally indicates better test performance.")
+print("Polynomial Regression can capture nonlinear relationships.")
